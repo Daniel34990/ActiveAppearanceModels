@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy import linalg as LA
+from skimage.transform import warp
 
 def AffineRegistrationLandmarks(x,y):
 
@@ -178,79 +179,16 @@ def nearestNeighboutInterp(pM,I,coords=None):
         
     return value
 
-def InverseWarping(I,T,coords=None,outputShape=None):
-    ''' 
-    Apply inverse warping to an image I based on a transformation T.
-    Transformation is defined by a 3x3 matrix
-        
-    Inputs: 
-        I: image to transform
-        T: 3x3 matrix trasformation
-        coords: coordinates of the image. If None, the coordinates of a pixel
-                are automatically its row and column position
-        outputShape: defines the shape of the transformed image.
-                     It can be 'None', same shape as the input image I or 'BB', 
-                     bounding box of the transformed image I_T,  or a tuple/numpy
-                     array with 4 elements (min x, max x, min y, max y)
-        
-            
-    Output:
-        J: transformed image
-    ''' 
-    
-    if coords is None:
-        
-        if outputShape is None:
-            outputShape=(0,I.shape[0],0,I.shape[1])
-            
-        elif outputShape == 'BB':
-            coords = np.mgrid[0:I.shape[0], 0:I.shape[1]] # coordinates
-            cm = applyTransformation(T,coords=coords)[1]
-            #Find extremities bounding box
-            bx=int(np.floor(np.min(cm[0,:,:])))
-            ux=int(np.ceil(np.max(cm[0,:,:])))
-            by=int(np.floor(np.min(cm[1,:,:])))
-            uy=int(np.ceil(np.max(cm[1,:,:])))
-            outputShape=(bx,ux,by,uy)
-            
-        elif isinstance(outputShape, tuple):
-            if len(outputShape) != 4:
-                raise ValueError("Error ! outputShape should be of length 4")           
-                
-        elif isinstance(outputShape, np.ndarray):
-            if len(outputShape) != 4:
-                raise ValueError("Error ! outputShape should be of length 4")                                      
-        else:
-            raise ValueError("Error ! outputShape should be None, 'BB' or a tuple/numpy array with 4 elements")       
-                                 
-        J = np.zeros((outputShape[1]-outputShape[0],outputShape[3]-outputShape[2])) # transformed image
-        Inverse_matrix = LA.inv(T)
-        
-        for i in range(J.shape[0]):
-            for j in range(J.shape[1]):
-
-                p=np.array([i,j,1]) # coordinate of a pixel to transform
-                pM = Inverse_matrix @ p # transformed coordinate
-
-                if pM[-1] != 0: 
-                  pM = pM/pM[-1] # normalization in case of homography
-
-                  # shifting since the first pixel will be in (0,0) in the output image
-                  if outputShape[0]<0:
-                      x=i+abs(outputShape[0])
-                  else:
-                      x=i
-                  if outputShape[2]<0:
-                      y=j+abs(outputShape[2])
-                  else:
-                      y=j
-                      
-                  J[x,y]=nearestNeighboutInterp(pM,I)
-    
-    else:
-        raise ValueError("Error ! Still not implemented")
-        
-    return J
+def inverse_warping(Is,T,H,W):
+    Ism = warp(
+        Is, 
+        inverse_map=LA.inv(T),  # Transformation inverse (cible → source)
+        output_shape=(H,W),
+        mode='constant',  # Remplissage avec des zéros hors de l'image
+        cval=0, 
+        preserve_range=True  # Conserve les valeurs originales (utile pour les images uint8)
+    ) 
+    return Ism
 
 def applyTransformation(T, points=None, coords=None):
     ''' 
@@ -533,3 +471,15 @@ def generalized_procrustes_analysis(X,tau=1e-5,tangent=1):
         
 
     return Xcp, Xm1
+
+def rescale_to_original(landmark, H, W):
+    min_x, max_x = np.min(landmark[:, 0]), np.max(landmark[:, 0])
+    min_y, max_y = np.min(landmark[:, 1]), np.max(landmark[:, 1])
+    
+    landmarks_mapped = np.zeros_like(landmark)
+    landmarks_mapped[:, 0] = ((landmark[:, 0] - min_x) / (max_x - min_x)) * W
+    landmarks_mapped[:, 1] = ((landmark[:, 1] - min_y) / (max_y - min_y)) * H
+    
+    landmarks_mapped = landmarks_mapped.astype(int)
+
+    return landmarks_mapped
